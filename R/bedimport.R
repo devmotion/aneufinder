@@ -1,15 +1,12 @@
-
-
-#' Read bed-file into GRanges
+#' Import BED file into GRanges
 #'
-#' This is a simple convenience function to read a bed(.gz)-file into a \code{\link{GRanges}} object. The bed-file is expected to have the following fields: \code{chromosome, start, end, name, score, strand}.
+#' This is a simple convenience function to read a BED file into a \code{\link{GRanges}} object. The BED file is expected to contain at least the following fields \code{chromosome, start, end}.
 #'
-#' @param bedfile Filename of the bed or bed.gz file.
+#' @param bedfile Filename of a BED file.
 #' @param skip Number of lines to skip at the beginning.
-#' @param chromosome.format Desired format of the chromosomes. Either 'NCBI' for (1,2,3 ...) or 'UCSC' for (chr1,chr2,chr3 ...).
-#' @return A \code{\link{GRanges}} object with the contents of the bed-file.
-#' @author Aaron Taudt
-#' @importFrom utils read.table
+#' @return A \code{\link{GRanges}} object with the contents of the BED file.
+#' @author Aaron Taudt, David Widmann
+#' @importFrom utils count.fields read.table
 #' @export
 #'
 #'@examples
@@ -18,26 +15,27 @@
 #'## Import the file and skip the first 10 lines
 #'data <- importBed(bedfile, skip=10)
 #'
-importBed <- function(bedfile, skip=0, chromosome.format='NCBI') {
+importBed <- function(bedfile, skip=0) {
+  ncols <- max(utils::count.fields(bedfile, skip=skip))
 
-	# File with reads, determine classes first for faster import (0-based)
-	classes <- c('character','numeric','numeric','character','integer','character')
-	data <- utils::read.table(bedfile, colClasses=classes, skip=skip)
-	# GRanges compatible strand information
-	data[,6] <- sub('.','*',data[,6])
-	# Adjust chromosome format
-	data[,1] <- sub('^chr', '', data[,1])
-	if (chromosome.format=='UCSC') {
-		data[,1] <- paste0('chr', data[,1])
-	}
-	# Convert to GRanges object
-	gr <- GenomicRanges::GRanges(seqnames=data[,1],
-																	ranges=IRanges(start=data[,2]+1, end=data[,3]),	# +1 to match coordinate systems
-																	strand=data[,6],
-																	name=data[,4],
-																	score=data[,5])
+  if ( ncols < 3 )
+    stop("File ", bedfile, " is not a correct BED file. Please specify at least the three fields 'chromosome', 'start', 'end'.")
 
-	return(gr)
+  classes <- c("character", rep("numeric", 2), "character", "numeric", "character", rep("NULL", max(0, ncols-6)))[1:ncols]
+  data <- utils::read.table(bedfile, colClasses=classes, skip=skip)
+  data <- cbind(data, data.frame('.', 1000, '*')[,0:(6-ncol(data))])
+  names(data) <- c("chrom", "chromStart", "chromEnd", "name", "score", "strand")
 
+  ## adjust strand information
+  data$strand <- sub("^[^+-]$", "*", data$strand)
+
+  ## convert to GRanges object
+  ranges <- GenomicRanges::GRanges(seqnames=data$chrom,
+                                   ranges=IRanges(start=data$chromStart+1,     # Convert from 0-based half open to 1-based closed
+                                                  end=data$chromEnd),
+                                   name=data$name,
+                                   mapq=data$score,
+                                   strand=data$strand)
+
+  return(ranges)
 }
-
